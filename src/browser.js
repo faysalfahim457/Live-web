@@ -52,7 +52,7 @@ class BrowserController extends EventEmitter {
       chromiumSandbox: !this.cfg.chromiumNoSandbox,
       proxy: { server: `http://127.0.0.1:${this.proxy.port}`, bypass: '<-loopback>' },
       args: ['--disable-dev-shm-usage', '--disable-background-networking', '--disable-extensions', '--disable-sync', '--no-first-run', '--mute-audio',
-        '--force-webrtc-ip-handling-policy=disable_non_proxied_udp', '--deny-permission-prompts', '--disable-component-update', '--disable-features=Translate,MediaRouter'],
+        '--force-webrtc-ip-handling-policy=disable_non_proxied_udp', '--deny-permission-prompts', '--disable-component-update', '--disable-features=Translate,MediaRouter,IsolateOrigins,site-per-process', '--renderer-process-limit=2', '--js-flags=--max-old-space-size=384'],
     });
     this.browser.on('disconnected', () => { if (!this.closed) this.emit('terminated', 'The browser process ended unexpectedly.'); });
     const major = (this.browser.version() || '120').split('.')[0];
@@ -217,7 +217,7 @@ class BrowserController extends EventEmitter {
   async startStream() { if (this.streaming) return; this.streaming = true; await this._startCast(); await this.sendOneFrame(); }
   async stopStream() { if (!this.streaming) return; this.streaming = false; await this._stopCast(); }
   async _startCast() {
-    try { await this.cdp.send('Page.startScreencast', { format: 'jpeg', quality: this.cfg.screencastQuality, maxWidth: this.viewport.width, maxHeight: this.viewport.height, everyNthFrame: 1 }); } catch { /* page closing */ }
+    try { await this.cdp.send('Page.startScreencast', { format: 'jpeg', quality: this.cfg.screencastQuality, maxWidth: this.viewport.width, maxHeight: this.viewport.height, everyNthFrame: Math.max(1, this.cfg.screencastEveryNth || 1) }); } catch { /* page closing */ }
   }
   async _stopCast() { try { await this.cdp.send('Page.stopScreencast'); } catch { /* ignore */ } }
   _onFrame(f) {

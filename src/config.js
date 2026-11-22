@@ -29,10 +29,13 @@ function loadConfig(overrides = {}) {
     collectJson: bool('COLLECT_JSON', true),
     collectSourceMaps: bool('COLLECT_SOURCE_MAPS', true),
     collectMedia: bool('COLLECT_MEDIA', false),
+    discoverChunks: bool('DISCOVER_CHUNKS', true), // fetch lazy webpack chunk files the page has not requested yet
+    maxChunks: int('MAX_CHUNKS', 400),
     navTimeoutMs: int('NAV_TIMEOUT_MS', 30000),
     // Browser
     chromiumNoSandbox: bool('CHROMIUM_NO_SANDBOX', false),
     screencastQuality: int('SCREENCAST_QUALITY', 60),
+    screencastEveryNth: int('SCREENCAST_EVERY_NTH', 1), // raise to 2-3 on very small servers
     // Network policy
     allowedPorts: list('ALLOWED_PORTS', '80,443,8080,8443').map(Number).filter(Boolean),
     // Entries "host:port" that skip the private-address block. TESTING ONLY.

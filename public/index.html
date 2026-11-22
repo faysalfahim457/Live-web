@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0B1020">
+<title>WebCollector Studio</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<svg class="sprite" width="0" height="0" aria-hidden="true"><defs>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+<symbol id="i-fwd" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+<symbol id="i-reload" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></symbol>
+<symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+<symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+<symbol id="i-files" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16"/></symbol>
+<symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4 10-10"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-side" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+<symbol id="i-desk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+<symbol id="i-tab" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M11 17h2"/></symbol>
+<symbol id="i-mob" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+<symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2zM12 10v5M12 18h.01"/></symbol>
+</defs></svg>
+
+<div id="app" class="app" data-view="browser" data-side="open">
+  <header class="toolbar">
+    <div class="row nav">
+      <div class="brand"><span class="logo">WC</span><span class="brand-name">WebCollector <b>Studio</b></span></div>
+      <div class="navbtns">
+        <button class="ib" id="btn-back" title="Back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <button class="ib" id="btn-fwd" title="Forward" aria-label="Forward"><svg><use href="#i-fwd"/></svg></button>
+        <button class="ib" id="btn-reload" title="Reload" aria-label="Reload"><svg><use href="#i-reload"/></svg></button>
+        <button class="ib" id="btn-stop" title="Stop" aria-label="Stop"><svg><use href="#i-stop"/></svg></button>
+        <button class="ib" id="btn-home" title="Home" aria-label="Home"><svg><use href="#i-home"/></svg></button>
+      </div>
+      <form id="url-form" class="urlbar" autocomplete="off">
+        <svg class="u-ico"><use href="#i-globe"/></svg>
+        <input id="url" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Enter a website address, e.g. example.com" aria-label="Website address">
+        <button class="btn primary" id="btn-open" type="submit">Open<span class="hide-sm"> Website</span></button>
+      </form>
+      <div class="status-pill" id="status-pill" data-s="ready"><i></i><span id="status-text">Ready for New Collection</span></div>
+      <button class="ib only-sm" id="btn-more" title="More" aria-label="More tools"><svg><use href="#i-more"/></svg></button>
+    </div>
+    <div class="row actions" id="actions">
+      <div class="seg" role="group" aria-label="Viewport">
+        <button class="ib" data-vp="desktop" title="Desktop 1440×900" aria-label="Desktop viewport"><svg><use href="#i-desk"/></svg></button>
+        <button class="ib" data-vp="tablet" title="Tablet 768×1024" aria-label="Tablet viewport"><svg><use href="#i-tab"/></svg></button>
+        <button class="ib" data-vp="mobile" title="Mobile 390×844" aria-label="Mobile viewport"><svg><use href="#i-mob"/></svg></button>
+      </div>
+      <form id="vp-form" class="vp-custom"><input id="vp-w" type="number" min="200" max="3840" aria-label="Width"><span>×</span><input id="vp-h" type="number" min="200" max="2400" aria-label="Height"><button class="btn sm" type="submit">Set</button></form>
+      <label class="switch" title="Collector ON/OFF"><input type="checkbox" id="sw-collector"><span class="sw"></span><span class="sw-l">Collector</span></label>
+      <button class="btn sm" id="btn-scan"><svg><use href="#i-scan"/></svg><span>Scan Current Page</span></button>
+      <button class="btn sm" id="btn-finish"><svg><use href="#i-check"/></svg><span>Finish</span></button>
+      <button class="ib" id="btn-full" title="Fullscreen" aria-label="Fullscreen"><svg><use href="#i-full"/></svg></button>
+      <button class="ib hide-sm" id="btn-side" title="Toggle resource panel" aria-label="Toggle resource panel"><svg><use href="#i-side"/></svg></button>
+      <span class="grow"></span>
+      <div class="dl-wrap">
+        <div class="split">
+          <button class="btn cta" id="btn-zip"><svg><use href="#i-dl"/></svg><span>Download ZIP</span></button>
+          <button class="btn cta caret" id="btn-zip-menu" aria-label="More download options" aria-haspopup="true">▾</button>
+        </div>
+        <div class="menu" id="dl-menu" hidden>
+          <button data-scope="all">Download Complete Project ZIP</button>
+          <button data-scope="page">Download Current Page</button>
+          <button data-scope="html">Download HTML Only</button>
+          <button data-scope="css">Download CSS Only</button>
+          <button data-scope="js">Download JavaScript Only</button>
+          <button data-scope="images">Download Images Only</button>
+          <button data-scope="fonts">Download Fonts Only</button>
+          <button data-scope="selected" id="dl-selected">Download Selected Files</button>
+          <label class="menu-check"><input type="checkbox" id="chk-recon" checked> Include reconstructed static copy</label>
+        </div>
+      </div>
+      <button class="btn danger" id="btn-new"><svg><use href="#i-plus"/></svg><span>Replace / New Collection</span></button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" hidden><span id="banner-text"></span><button class="btn sm" id="banner-retry" hidden>Retry</button><button class="ib sm" id="banner-x" aria-label="Dismiss"><svg><use href="#i-x"/></svg></button></div>
+
+  <main class="main">
+    <section class="stage-wrap" id="stage-wrap">
+      <div class="stage" id="stage">
+        <div class="frame" id="frame" hidden><canvas id="screen" tabindex="0" aria-label="Remote browser"></canvas><div class="loadbar" id="loadbar"></div></div>
+        <div class="welcome" id="welcome">
+          <div class="card">
+            <div class="big-logo">WC</div>
+            <h1>Collect a website's frontend files</h1>
+            <p>Enter an address above. A remote Chromium opens it, you browse normally, and public HTML, CSS, JavaScript, images and fonts are collected while you go. Everything is temporary &mdash; download the ZIP, then start fresh.</p>
+            <form id="welcome-form" class="wf"><input id="welcome-url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://example.com" aria-label="Website address"><button class="btn primary" type="submit">Open Website</button></form>
+            <p class="fine">Only use this on sites you are authorised to inspect. Passwords, cookies and credentials are never collected.</p>
+          </div>
+        </div>
+        <div class="spinner" id="spinner" hidden></div>
+        <button class="btn sm kbd-btn" id="btn-kbd" hidden><svg><use href="#i-kbd"/></svg>Keyboard</button>
+        <input id="kbd-input" class="kbd-input" type="text" autocomplete="off" autocapitalize="off" aria-hidden="true" tabindex="-1">
+      </div>
+    </section>
+
+    <aside class="side" id="side" aria-label="Resources">
+      <div class="side-head">
+        <div class="tabs" role="tablist">
+          <button role="tab" data-tab="files" class="on">Files</button>
+          <button role="tab" data-tab="images">Images</button>
+          <button role="tab" data-tab="pages">Pages</button>
+        </div>
+        <button class="ib only-sm" id="side-close" aria-label="Close panel"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <div class="side-tools" id="side-tools">
+        <div class="search"><svg><use href="#i-search"/></svg><input id="q" type="search" placeholder="Search files…" aria-label="Search files"></div>
+        <div class="chips" id="chips">
+          <button data-type="all" class="on">All</button><button data-type="html">HTML</button><button data-type="css">CSS</button><button data-type="js">JS</button><button data-type="images">Images</button><button data-type="fonts">Fonts</button><button data-type="other">Other</button>
+        </div>
+        <div class="selbar"><label><input type="checkbox" id="sel-all"> Select shown</label><span id="sel-count">0 selected</span><button class="lnk" id="sel-clear">Clear</button></div>
+      </div>
+      <div class="list" id="list" role="list"></div>
+      <div class="pages" id="pages" hidden></div>
+      <div class="more"><button class="btn sm" id="btn-more-files" hidden>Load more</button></div>
+    </aside>
+
+    <section class="downloads" id="downloads">
+      <h2>Downloads</h2>
+      <div class="dl-card">
+        <p id="dl-sum" class="muted">Nothing collected yet.</p>
+        <button class="btn cta wide" id="m-zip"><svg><use href="#i-dl"/></svg>Download ZIP</button>
+        <div class="grid-btns">
+          <button class="btn" data-scope="page">Current Page</button><button class="btn" data-scope="html">HTML only</button><button class="btn" data-scope="css">CSS only</button>
+          <button class="btn" data-scope="js">JS only</button><button class="btn" data-scope="images">Images only</button><button class="btn" data-scope="fonts">Fonts only</button>
+        </div>
+        <button class="btn danger wide" id="m-new"><svg><use href="#i-plus"/></svg>Replace / New Collection</button>
+      </div>
+      <div class="stats-grid" id="stats-m"></div>
+    </section>
+  </main>
+
+  <footer class="statusbar" id="statusbar">
+    <div class="sb-line"><b id="sb-state">Ready</b><span class="sb-url" id="sb-url">—</span></div>
+    <div class="stats" id="stats"></div>
+    <div class="export" id="export" hidden><div class="bar"><i id="export-bar"></i></div><span id="export-text"></span></div>
+  </footer>
+
+  <nav class="bottomnav" id="bottomnav">
+    <button data-view="browser" class="on"><svg><use href="#i-globe"/></svg>Browser</button>
+    <button data-view="files"><svg><use href="#i-files"/></svg>Files<em id="bn-count"></em></button>
+    <button data-view="downloads"><svg><use href="#i-dl"/></svg>Downloads</button>
+  </nav>
+</div>
+
+<div class="popover" id="more-pop" hidden></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="modal-bg" id="modal-bg" hidden><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+<iframe name="dlframe" id="dlframe" hidden title="download"></iframe>
+<script src="app.js"></script>
+</body>
+</html>

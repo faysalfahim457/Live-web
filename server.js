@@ -80,7 +80,6 @@ async function initBrowser() {
   isLaunching = true;
 
   try {
-    // 512MB র‍্যামের জন্য আল্ট্রা-লাইট ক্রোমিয়াম সেটিংস
     session.browser = await chromium.launch({
       headless: true,
       args: [
@@ -91,8 +90,6 @@ async function initBrowser() {
         '--disable-software-rasterizer',
         '--disable-extensions',
         '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-sync',
         '--mute-audio',
         '--no-first-run',
         '--disable-blink-features=AutomationControlled',
@@ -109,24 +106,26 @@ async function initBrowser() {
       bypassCSP: true
     });
 
-    session.context.on('page', async (newPage) => {
-      try {
-        const targetUrl = newPage.url();
-        await newPage.close().catch(() => {});
-        if (targetUrl && targetUrl !== 'about:blank' && session.page) {
-          await session.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        }
-      } catch {}
-    });
-
-    session.page = await session.context.newPage();
-
-    await session.page.addInitScript(() => {
+    // কনটেক্সটে সরাসরি বট বাইপাস ও পপ-আপ স্ক্রিপ্ট যুক্ত
+    await session.context.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
       window.open = (url) => { if (url) window.location.href = url; return window; };
     });
 
-    session.cdp = await session.context.newCDPSession(session.page);
+    // মূল পেজ তৈরি
+    session.page = await session.context.newPage();
+
+    // শুধুমাত্র বহিরাগত পপ-আপ ধরা (মূল পেজ যেন বন্ধ না হয়)
+    session.context.on('page', async (popup) => {
+      if (popup === session.page) return; // মূল পেজ স্কিপ
+      try {
+        const targetUrl = popup.url();
+        await popup.close().catch(() => {});
+        if (targetUrl && targetUrl !== 'about:blank' && session.page && !session.page.isClosed()) {
+          await session.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+      } catch {}
+    });
 
     session.page.on('response', async (resp) => {
       try {
@@ -138,6 +137,8 @@ async function initBrowser() {
         }
       } catch {}
     });
+
+    session.cdp = await session.context.newCDPSession(session.page);
 
     await session.cdp.send('Page.startScreencast', {
       format: 'jpeg',
@@ -158,6 +159,7 @@ async function initBrowser() {
     });
 
     session.page.on('framenavigated', () => {
+      if (!session.page || session.page.isClosed()) return;
       const curUrl = session.page.url();
       if (curUrl && curUrl !== 'about:blank') {
         session.lastUrl = curUrl;
@@ -172,7 +174,7 @@ async function initBrowser() {
       }
     });
   } catch (err) {
-    console.error('Browser launch error:', err);
+    console.error('Browser launch error:', err.message);
   } finally {
     isLaunching = false;
   }
@@ -320,7 +322,7 @@ wss.on('connection', async (ws) => {
     try {
       const msg = JSON.parse(raw);
 
-      if (msg.type === 'navigate') {
+      if (msg.type === 'navigate' && session.page && !session.page.isClosed()) {
         let target = msg.url.trim();
         if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
 
@@ -348,7 +350,7 @@ wss.on('connection', async (ws) => {
             y: msg.y,
             button: 'left',
             clickCount: 1
-          });
+          }).catch(() => {});
         }
       }
 
@@ -359,10 +361,10 @@ wss.on('connection', async (ws) => {
           y: msg.y || 422,
           deltaX: msg.deltaX || 0,
           deltaY: msg.deltaY || 0
-        });
+        }).catch(() => {});
       }
 
-      if (msg.type === 'scan' && session.page) {
+      if (msg.type === 'scan' && session.page && !session.page.isClosed()) {
         ws.send(JSON.stringify({ type: 'status', state: 'collecting', message: 'Scanning page...' }));
         await session.page.evaluate(async () => {
           await new Promise((resolve) => {
@@ -379,26 +381,28 @@ wss.on('connection', async (ws) => {
               }
             }, 100);
           });
-        });
+        }).catch(() => {});
       }
 
-      if (msg.type === 'set_viewport' && session.page) {
+      if (msg.type === 'set_viewport' && session.page && !session.page.isClosed()) {
         session.viewport = { width: msg.width, height: msg.height };
-        await session.page.setViewportSize(session.viewport);
-        await session.cdp.send('Page.startScreencast', {
-          format: 'jpeg',
-          quality: 35,
-          maxWidth: msg.width,
-          maxHeight: msg.height,
-          everyNthFrame: 1
-        });
+        await session.page.setViewportSize(session.viewport).catch(() => {});
+        if (session.cdp) {
+          await session.cdp.send('Page.startScreencast', {
+            format: 'jpeg',
+            quality: 35,
+            maxWidth: msg.width,
+            maxHeight: msg.height,
+            everyNthFrame: 1
+          }).catch(() => {});
+        }
       }
 
-      if (msg.type === 'type' && session.page) {
-        await session.page.keyboard.type(msg.text);
+      if (msg.type === 'type' && session.page && !session.page.isClosed()) {
+        await session.page.keyboard.type(msg.text).catch(() => {});
       }
 
-      if (msg.type === 'nav_action' && session.page) {
+      if (msg.type === 'nav_action' && session.page && !session.page.isClosed()) {
         if (msg.action === 'back') await session.page.goBack().catch(() => {});
         if (msg.action === 'fwd') await session.page.goForward().catch(() => {});
         if (msg.action === 'reload') await session.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
@@ -412,7 +416,7 @@ wss.on('connection', async (ws) => {
           fs.rmSync(session.siteDir, { recursive: true, force: true });
           fs.mkdirSync(session.siteDir, { recursive: true });
         }
-        if (session.page) await session.page.goto('about:blank');
+        if (session.page && !session.page.isClosed()) await session.page.goto('about:blank').catch(() => {});
         ws.send(JSON.stringify({ type: 'status', state: 'ready', count: 0, pages: 0, url: '' }));
       }
     } catch (e) {}

@@ -273,6 +273,7 @@ class Collector extends EventEmitter {
     const added = await this.addBuffer({ url: c.url, type: c.type, mime: c.mime, buf: body, httpStatus: c.status, pageKey, kind: 'network', filename, isFrame: c.type === 'html' && !c.isMainDoc });
     if (added && !added.duplicate) {
       if (c.type === 'js' && this.cfg.collectSourceMaps) this._maybeSourceMap(added.res, body, c.url, c.headers, pageKey);
+      if (c.type === 'js' || (c.type === 'html' && c.isMainDoc)) this._discoverChunks(body, c.url, pageKey);
       if (c.type === 'html' && c.isMainDoc) { const p = this.pages.get(pageKey); if (p) p.originalId = added.res.id; }
     } else if (added && added.duplicate && c.type === 'html' && c.isMainDoc) {
       const p = this.pages.get(pageKey); if (p && !p.originalId) p.originalId = added.res.id;
@@ -297,6 +298,35 @@ class Collector extends EventEmitter {
         await this.addBuffer({ url: mapUrl, type: 'other', mime: 'application/json', buf: r.body, httpStatus: r.status, pageKey, kind: 'sourcemap', filename: safeFilename(path.basename(new URL(mapUrl).pathname) || 'bundle.map') });
       } catch { /* optional resource */ }
     });
+  }
+
+  // Webpack-style apps load most of their code lazily as numbered chunks, so the browser only requests the ones the visitor happened to trigger.
+  // The runtime contains the complete id -> file-name table; read it and fetch every chunk so the collection is complete.
+  _discoverChunks(buf, baseUrl, pageKey) {
+    if (!this.cfg.discoverChunks || buf.length > 3 * 1024 * 1024) return;
+    const t = buf.toString('utf8');
+    if (!/\.chunk\.js|\.js"/.test(t) || !/\.p\s*\+/.test(t)) return;
+    const m = /\.p\s*\+\s*"([^"]*)"\s*\+\s*(?:\(\s*\{([^}]*)\}\s*\[(\w+)\]\s*\|\|\s*\3\s*\)|\w+)\s*\+\s*"\."\s*\+\s*\{([^}]*)\}\s*\[\w+\]\s*\+\s*"(\.[\w.]*)"/.exec(t);
+    if (!m) return;
+    const pp = /\.p\s*=\s*"([^"]*)"/.exec(t);
+    const pub = pp ? pp[1] : '';
+    const kv = (txt) => { const o = {}; if (txt) for (const x of txt.matchAll(/"?(\d+)"?\s*:\s*"([^"]*)"/g)) o[x[1]] = x[2]; return o; };
+    const names = kv(m[2]); const hashes = kv(m[4]);
+    this.chunksQueued = this.chunksQueued || 0;
+    for (const id of Object.keys(hashes)) {
+      if (this.chunksQueued >= this.cfg.maxChunks) break;
+      let url; try { url = new URL(`${pub}${m[1]}${names[id] || id}.${hashes[id]}${m[5]}`, baseUrl).toString(); } catch { continue; }
+      if (!/^https?:/i.test(url) || this.byUrl.has(stripHash(url))) continue;
+      this.chunksQueued++;
+      this.queue.push(async () => {
+        if (!this.enabled || this.full || this.byUrl.has(stripHash(url))) return;
+        try {
+          const r = await safeFetch(url, this.cfg, { maxBytes: this.cfg.maxFileBytes });
+          if (r.status !== 200) return;
+          await this.addBuffer({ url, type: 'js', mime: 'application/javascript', buf: r.body, httpStatus: 200, pageKey, kind: 'network' });
+        } catch { /* optional resource */ }
+      });
+    }
   }
 
   onRequestFailed(req) {

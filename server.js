@@ -1,11 +1,10 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
+const zlib = require('node:zlib');
 const { chromium } = require('playwright');
 const { WebSocketServer, WebSocket } = require('ws');
 
-// Render স্বয়ংক্রিয়ভাবে PORT এনভায়রনমেন্ট ভেরিয়েবল সেট করে
 const PORT = process.env.PORT || 7860;
 const HOST = '0.0.0.0';
 const TEMP_ROOT = process.env.TEMP_ROOT || '/tmp/webcollector';
@@ -13,48 +12,29 @@ const PUBLIC_DIR = path.join(process.cwd(), 'public');
 
 if (!fs.existsSync(TEMP_ROOT)) fs.mkdirSync(TEMP_ROOT, { recursive: true });
 
-// সেশন স্টোরেজ (মেমরিতে স্টেট রাখা)
-const sessions = new Map();
+// সেশন ম্যানেজার
+const session = {
+  id: 'active_session',
+  dir: path.join(TEMP_ROOT, 'active_session'),
+  siteDir: path.join(TEMP_ROOT, 'active_session', 'site'),
+  browser: null,
+  context: null,
+  page: null,
+  cdp: null,
+  ws: null,
+  resources: new Map(),
+  pages: new Map(),
+  collecting: true,
+  lastUrl: '',
+  viewport: { width: 390, height: 844 }
+};
 
-function getOrCreateSession(token) {
-  if (!token || !sessions.has(token)) {
-    const id = token || crypto.randomBytes(16).toString('hex');
-    const dir = path.join(TEMP_ROOT, id);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    
-    // সাইটের ফাইল আসল পাথে সাজানোর সাব-ডিরেক্টরি
-    const siteDir = path.join(dir, 'site');
-    const originalDir = path.join(dir, 'original');
-    fs.mkdirSync(siteDir, { recursive: true });
-    fs.mkdirSync(originalDir, { recursive: true });
+if (!fs.existsSync(session.siteDir)) fs.mkdirSync(session.siteDir, { recursive: true });
 
-    const session = {
-      id,
-      dir,
-      siteDir,
-      originalDir,
-      browser: null,
-      context: null,
-      page: null,
-      cdp: null,
-      ws: null,
-      resources: new Map(),
-      pages: new Set(),
-      collecting: true,
-      lastUrl: '',
-      title: ''
-    };
-    sessions.set(id, session);
-    return session;
-  }
-  return sessions.get(token);
-}
-
-// ফাইল এক্সটেনশন ও টাইপ শনাক্তকারী
-function categorizeUrl(urlStr, contentType = '') {
+// ফাইল টাইপ সনাক্তকরণ
+function categorize(urlStr, contentType = '') {
   try {
-    const u = new URL(urlStr);
-    const p = u.pathname;
+    const p = new URL(urlStr).pathname.toLowerCase();
     if (contentType.includes('text/html') || p.endsWith('.html') || p.endsWith('/')) return 'html';
     if (contentType.includes('text/css') || p.endsWith('.css')) return 'css';
     if (contentType.includes('javascript') || p.endsWith('.js')) return 'js';
@@ -66,156 +46,266 @@ function categorizeUrl(urlStr, contentType = '') {
   }
 }
 
-// সাইটের আসল গঠন অনুযায়ী সেভ করা যাতে আসল কোডিং লজিক ঠিক থাকে
-async function saveResource(session, urlStr, buffer, contentType) {
+// সাইটের আসল পাথে ফাইল সেভ করা
+function saveResource(urlStr, buffer, contentType) {
   try {
     const u = new URL(urlStr);
     let pathname = decodeURIComponent(u.pathname);
     if (pathname === '/' || pathname === '') pathname = '/index.html';
-    if (!path.extname(pathname) && contentType.includes('text/html')) pathname += '/index.html';
+    if (!path.extname(pathname) && (contentType.includes('text/html') || pathname.endsWith('/'))) {
+      pathname = path.join(pathname, 'index.html');
+    }
 
-    const localRelPath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
-    const targetFile = path.join(session.siteDir, localRelPath);
+    const localRel = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+    const targetPath = path.join(session.siteDir, localRel);
 
-    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-    fs.writeFileSync(targetFile, buffer);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, buffer);
 
-    const type = categorizeUrl(urlStr, contentType);
-    session.resources.set(urlStr, {
-      url: urlStr,
-      path: localRelPath,
-      type,
-      size: buffer.length
-    });
+    const type = categorize(urlStr, contentType);
+    const item = { url: urlStr, path: localRel, type, size: buffer.length };
+    session.resources.set(urlStr, item);
 
-    // ক্লায়েন্টকে রিয়েল-টাইম আপডেট পাঠানো
     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
       session.ws.send(JSON.stringify({
         type: 'resource_collected',
         count: session.resources.size,
-        resource: { url: urlStr, type, size: buffer.length, path: localRelPath }
+        resource: item
       }));
     }
-  } catch (err) {
-    // অকার্যকর URL স্কিপ
-  }
+  } catch (err) {}
 }
 
-async function initBrowser(session) {
+// ব্রাউজার ইঞ্জিন ইনিশিয়ালাইজ
+async function initBrowser() {
   if (session.browser) return;
 
-  // Render 512MB RAM এর জন্য ক্রোমিয়াম অপ্টিমাইজেশন
   session.browser = await chromium.launch({
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage', // র‍্যাম ক্র্যাশ ঠেকাবে
+      '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--disable-background-networking',
-      '--disable-extensions',
-      '--mute-audio',
+      '--disable-blink-features=AutomationControlled',
       '--no-first-run',
       '--js-flags=--max-old-space-size=256'
     ]
   });
 
   session.context = await session.browser.newContext({
-    viewport: { width: 390, height: 844 }, // মোবাইল সাইজ ডিফল্ট
-    userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+    viewport: session.viewport,
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
+    isMobile: true,
+    hasTouch: true,
+    ignoreHTTPSErrors: true,
+    bypassCSP: true
+  });
+
+  // পপ-আপ বা নতুন ট্যাবের লিংক সরাসরি বর্তমান ট্যাবেই আনা
+  session.context.on('page', async (newPage) => {
+    try {
+      const targetUrl = newPage.url();
+      await newPage.close().catch(() => {});
+      if (targetUrl && targetUrl !== 'about:blank' && session.page) {
+        await session.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      }
+    } catch {}
   });
 
   session.page = await session.context.newPage();
-  session.cdp = await session.page.context().newCDPSession(session.page);
+  
+  // বট ডিটেকশন বাইপাস স্ক্রিপ্ট
+  await session.page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    window.open = (url) => { if (url) window.location.href = url; return window; };
+  });
 
-  // সব ধরনের নেটওয়ার্ক রিকোয়েস্ট লাইভ ক্যাপচার
+  session.cdp = await session.context.newCDPSession(session.page);
+
+  // সব ফাইল অটো-ক্যাপচার
   session.page.on('response', async (resp) => {
     if (!session.collecting) return;
     try {
-      const status = resp.status();
-      if (status >= 200 && status < 300) {
-        const url = resp.url();
-        if (url.startsWith('http')) {
-          const buffer = await resp.body().catch(() => null);
-          const ct = resp.headers()['content-type'] || '';
-          if (buffer && buffer.length > 0) {
-            await saveResource(session, url, buffer, ct);
-          }
+      const url = resp.url();
+      if (url.startsWith('http')) {
+        const ct = resp.headers()['content-type'] || '';
+        const body = await resp.body().catch(() => null);
+        if (body && body.length > 0) {
+          saveResource(url, body, ct);
         }
       }
     } catch {}
   });
 
-  // CDP Screencast - ফ্রেম আটকানো বন্ধের জন্য রিয়েল-টাইম ACK লজিক
+  // স্ক্রিনকাস্ট স্ট্রিম
   await session.cdp.send('Page.startScreencast', {
     format: 'jpeg',
-    quality: 35,
-    maxWidth: 390,
-    maxHeight: 844,
-    everyNthFrame: 2
+    quality: 45,
+    maxWidth: session.viewport.width,
+    maxHeight: session.viewport.height,
+    everyNthFrame: 1
   });
 
   session.cdp.on('Page.screencastFrame', async ({ data, sessionId }) => {
-    // ক্রোমিয়াম যাতে পরবর্তী ফ্রেম না আটকে রাখে সেজন্য সাথে সাথে ACK দেওয়া হচ্ছে
     try {
       await session.cdp.send('Page.screencastFrameAck', { sessionId });
     } catch {}
 
     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-      session.ws.send(JSON.stringify({
-        type: 'frame',
-        data
-      }));
+      session.ws.send(JSON.stringify({ type: 'frame', data }));
     }
   });
 
-  // পেজ লোড বা ইউআরএল চেঞ্জ হলে ফ্রন্টএন্ড জানানো
-  session.page.on('framenavigated', async () => {
-    session.lastUrl = session.page.url();
-    session.pages.add(session.lastUrl);
-    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-      session.ws.send(JSON.stringify({
-        type: 'navigated',
-        url: session.lastUrl,
-        pagesCount: session.pages.size
-      }));
+  session.page.on('framenavigated', () => {
+    const curUrl = session.page.url();
+    if (curUrl && curUrl !== 'about:blank') {
+      session.lastUrl = curUrl;
+      session.pages.set(curUrl, true);
+      if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+        session.ws.send(JSON.stringify({
+          type: 'navigated',
+          url: curUrl,
+          pagesCount: session.pages.size
+        }));
+      }
     }
   });
+}
+
+// জিপ তৈরি করার ফাংশন (Zero-dependency ZIP stream)
+function createZipStream(sourceDir) {
+  const files = [];
+  function scan(dir, base = '') {
+    if (!fs.existsSync(dir)) return;
+    for (const item of fs.readdirSync(dir)) {
+      const full = path.join(dir, item);
+      const rel = path.join(base, item).replace(/\\/g, '/');
+      if (fs.statSync(full).isDirectory()) scan(full, rel);
+      else files.push({ rel, full, size: fs.statSync(full).size });
+    }
+  }
+  scan(sourceDir);
+
+  const crcTable = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+    crcTable[n] = c >>> 0;
+  }
+  function getCrc32(buf) {
+    let crc = 0 ^ (-1);
+    for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ crcTable[(crc ^ buf[i]) & 0xFF];
+    return (crc ^ (-1)) >>> 0;
+  }
+
+  const parts = [];
+  const cdEntries = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const data = fs.readFileSync(f.full);
+    const crc = getCrc32(data);
+    const nameBuf = Buffer.from(f.rel, 'utf8');
+
+    // Local Header
+    const h = Buffer.alloc(30);
+    h.writeUInt32LE(0x04034b50, 0);
+    h.writeUInt16LE(20, 4);
+    h.writeUInt16LE(0, 6);
+    h.writeUInt16LE(0, 8); // No compression (store mode)
+    h.writeUInt16LE(0, 10);
+    h.writeUInt16LE(0, 12);
+    h.writeUInt32LE(crc, 14);
+    h.writeUInt32LE(data.length, 18);
+    h.writeUInt32LE(data.length, 22);
+    h.writeUInt16LE(nameBuf.length, 26);
+    h.writeUInt16LE(0, 28);
+
+    parts.push(h, nameBuf, data);
+
+    // Central Directory Entry
+    const cd = Buffer.alloc(46);
+    cd.writeUInt32LE(0x02014b50, 0);
+    cd.writeUInt16LE(20, 4);
+    cd.writeUInt16LE(20, 6);
+    cd.writeUInt16LE(0, 8);
+    cd.writeUInt16LE(0, 10);
+    cd.writeUInt16LE(0, 12);
+    cd.writeUInt16LE(0, 14);
+    cd.writeUInt32LE(crc, 16);
+    cd.writeUInt32LE(data.length, 20);
+    cd.writeUInt32LE(data.length, 24);
+    cd.writeUInt16LE(nameBuf.length, 28);
+    cd.writeUInt16LE(0, 30);
+    cd.writeUInt16LE(0, 32);
+    cd.writeUInt16LE(0, 34);
+    cd.writeUInt16LE(0, 36);
+    cd.writeUInt32LE(0, 38);
+    cd.writeUInt32LE(offset, 42);
+
+    cdEntries.push(cd, nameBuf);
+    offset += h.length + nameBuf.length + data.length;
+  }
+
+  const cdStart = offset;
+  let cdSize = 0;
+  for (const b of cdEntries) cdSize += b.length;
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(files.length, 8);
+  eocd.writeUInt16LE(files.length, 10);
+  eocd.writeUInt32LE(cdSize, 12);
+  eocd.writeUInt32LE(cdStart, 16);
+  eocd.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...parts, ...cdEntries, eocd]);
 }
 
 // HTTP Server
 const server = http.createServer((req, res) => {
   const parsed = new URL(req.url, `http://${req.headers.host}`);
-  let filePath = path.join(PUBLIC_DIR, parsed.pathname === '/' ? 'index.html' : parsed.pathname);
 
+  // ডাউনলোড এন্ডপয়েন্ট
+  if (parsed.pathname === '/api/download') {
+    const zipBuffer = createZipStream(session.siteDir);
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="collected-site.zip"',
+      'Content-Length': zipBuffer.length
+    });
+    return res.end(zipBuffer);
+  }
+
+  // স্ট্যাটিক ফাইল সার্ভিং
+  let filePath = path.join(PUBLIC_DIR, parsed.pathname === '/' ? 'index.html' : parsed.pathname);
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
     const ext = path.extname(filePath);
-    const mimeMap = {
+    const mimes = {
       '.html': 'text/html',
       '.css': 'text/css',
       '.js': 'application/javascript',
       '.svg': 'image/svg+xml',
       '.png': 'image/png'
     };
-    res.writeHead(200, { 'Content-Type': mimeMap[ext] || 'text/plain' });
+    res.writeHead(200, { 'Content-Type': mimes[ext] || 'text/plain' });
     fs.createReadStream(filePath).pipe(res);
   } else {
     res.writeHead(404);
-    res.end('Not found');
+    res.end('Not Found');
   }
 });
 
-// WebSocket Server (রিয়েলটাইম টাচ, ক্লিক ও ব্রাউজার কমান্ড)
+// WebSocket Server
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', async (ws, req) => {
-  const token = 'active_session';
-  const session = getOrCreateSession(token);
+wss.on('connection', async (ws) => {
   session.ws = ws;
+  await initBrowser();
 
-  await initBrowser(session);
-
-  // সংযোগ হওয়া মাত্র বর্তমান স্ট্যাটাস পাঠানো
   ws.send(JSON.stringify({
     type: 'status',
     state: 'ready',
@@ -228,22 +318,28 @@ wss.on('connection', async (ws, req) => {
     try {
       const msg = JSON.parse(raw);
 
-      // ১. নেভিগেশন কমান্ড (নন-ব্লকিং, অনন্তকাল লোডিং হওয়া রোধ)
+      // ১. পেজ নেভিগেশন (সম্পূর্ণ রিবুট ও ফ্রেশ ভিজিট)
       if (msg.type === 'navigate') {
         let target = msg.url.trim();
         if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
+
         ws.send(JSON.stringify({ type: 'status', state: 'collecting', url: target }));
 
         try {
-          // 'networkidle' পরিহার করা হয়েছে যাতে লাইভ সকেট পেজে আটকে না থাকে
           await session.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 35000 });
-        } catch (e) {
-          // এরর হলেও ফ্রন্টএন্ডে ব্রাউজার চালু থাকবে
-        }
-        ws.send(JSON.stringify({ type: 'status', state: 'collecting', url: session.page.url() }));
+          session.lastUrl = session.page.url();
+          session.pages.set(session.lastUrl, true);
+        } catch (e) {}
+
+        ws.send(JSON.stringify({
+          type: 'status',
+          state: 'collecting',
+          url: session.lastUrl || target,
+          count: session.resources.size
+        }));
       }
 
-      // ২. মাউস ও টাচ ক্লিক হ্যান্ডলার
+      // ২. মাউস ও টাচ ইভেন্ট
       if (msg.type === 'mouse' && session.cdp) {
         if (msg.event === 'mousedown' || msg.event === 'mouseup') {
           await session.cdp.send('Input.dispatchMouseEvent', {
@@ -253,16 +349,10 @@ wss.on('connection', async (ws, req) => {
             button: 'left',
             clickCount: 1
           });
-        } else if (msg.event === 'mousemove') {
-          await session.cdp.send('Input.dispatchMouseEvent', {
-            type: 'mouseMoved',
-            x: msg.x,
-            y: msg.y
-          });
         }
       }
 
-      // ৩. স্ক্রোল ও টাচ হুইল হ্যান্ডলার
+      // ৩. স্ক্রোলিং ও হুইল
       if (msg.type === 'wheel' && session.cdp) {
         await session.cdp.send('Input.dispatchMouseEvent', {
           type: 'mouseWheel',
@@ -273,38 +363,68 @@ wss.on('connection', async (ws, req) => {
         });
       }
 
-      // ৪. মোবাইল কিবোর্ড টাইপিং
+      // ৪. অটো-স্ক্যান (Lazy Chunk ও ছবি সংগ্রহের জন্য পেজ অটো-স্ক্রোল)
+      if (msg.type === 'scan' && session.page) {
+        ws.send(JSON.stringify({ type: 'status', state: 'collecting', message: 'Scanning page...' }));
+        await session.page.evaluate(async () => {
+          await new Promise((resolve) => {
+            let totalHeight = 0;
+            const distance = 300;
+            const timer = setInterval(() => {
+              const scrollHeight = document.body.scrollHeight;
+              window.scrollBy(0, distance);
+              totalHeight += distance;
+              if (totalHeight >= scrollHeight) {
+                clearInterval(timer);
+                window.scrollTo(0, 0);
+                resolve();
+              }
+            }, 100);
+          });
+        });
+      }
+
+      // ৫. ভিউপোর্ট পরিবর্তন (মোবাইল / ট্যাব / ডেস্কটপ)
+      if (msg.type === 'set_viewport' && session.page) {
+        session.viewport = { width: msg.width, height: msg.height };
+        await session.page.setViewportSize(session.viewport);
+        await session.cdp.send('Page.startScreencast', {
+          format: 'jpeg',
+          quality: 45,
+          maxWidth: msg.width,
+          maxHeight: msg.height,
+          everyNthFrame: 1
+        });
+      }
+
+      // ৬. টাইপিং
       if (msg.type === 'type' && session.page) {
         await session.page.keyboard.type(msg.text);
       }
 
-      // ৫. ব্রাউজার অ্যাকশন (Back, Forward, Reload)
-      if (msg.type === 'nav_action') {
+      // ৭. ব্রাউজার ব্যাক / ফরোয়ার্ড / রিলোড
+      if (msg.type === 'nav_action' && session.page) {
         if (msg.action === 'back') await session.page.goBack().catch(() => {});
         if (msg.action === 'fwd') await session.page.goForward().catch(() => {});
         if (msg.action === 'reload') await session.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
       }
 
-      // ৬. নতুন কালেকশনের জন্য সেশন ক্লিয়ার
+      // ৮. নতুন কালেকশন রিসেট
       if (msg.type === 'reset') {
         session.resources.clear();
         session.pages.clear();
-        if (fs.existsSync(session.dir)) {
-          fs.rmSync(session.dir, { recursive: true, force: true });
+        session.lastUrl = '';
+        if (fs.existsSync(session.siteDir)) {
+          fs.rmSync(session.siteDir, { recursive: true, force: true });
           fs.mkdirSync(session.siteDir, { recursive: true });
         }
+        if (session.page) await session.page.goto('about:blank');
         ws.send(JSON.stringify({ type: 'status', state: 'ready', count: 0, pages: 0, url: '' }));
       }
-    } catch (err) {
-      console.error('Socket error:', err.message);
-    }
-  });
-
-  ws.on('close', () => {
-    if (session.ws === ws) session.ws = null;
+    } catch (e) {}
   });
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`WebCollector Server running on http://${HOST}:${PORT}`);
+  console.log(`WebCollector Studio listening on port ${PORT}`);
 });

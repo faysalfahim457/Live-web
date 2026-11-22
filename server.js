@@ -8,7 +8,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 process.on('uncaughtException', (err) => console.error('[Uncaught Exception]:', err.message));
 process.on('unhandledRejection', (reason) => console.error('[Unhandled Rejection]:', reason));
 
-const PORT = process.env.PORT || 10000;
+const PORT = Number(process.env.PORT) || 10000;
 const HOST = '0.0.0.0';
 const TEMP_ROOT = process.env.TEMP_ROOT || '/tmp/webcollector';
 const PUBLIC_DIR = path.join(process.cwd(), 'public');
@@ -74,13 +74,13 @@ function saveResource(urlStr, buffer, contentType) {
   } catch (err) {}
 }
 
-// ব্রাউজার লঞ্চ লক (যাতে মেমোরি ক্র্যাশ না হয়)
 let isLaunching = false;
 async function initBrowser() {
   if (session.browser || isLaunching) return;
   isLaunching = true;
 
   try {
+    // 512MB র‍্যামের জন্য আল্ট্রা-লাইট ক্রোমিয়াম সেটিংস
     session.browser = await chromium.launch({
       headless: true,
       args: [
@@ -88,8 +88,14 @@ async function initBrowser() {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-blink-features=AutomationControlled',
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--mute-audio',
         '--no-first-run',
+        '--disable-blink-features=AutomationControlled',
         '--js-flags=--max-old-space-size=128'
       ]
     });
@@ -135,7 +141,7 @@ async function initBrowser() {
 
     await session.cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 40,
+      quality: 35,
       maxWidth: session.viewport.width,
       maxHeight: session.viewport.height,
       everyNthFrame: 1
@@ -172,7 +178,6 @@ async function initBrowser() {
   }
 }
 
-// জিপ তৈরি করার লজিক
 function createZipStream(sourceDir) {
   const files = [];
   function scan(dir, base = '') {
@@ -219,7 +224,6 @@ function createZipStream(sourceDir) {
     h.writeUInt32LE(data.length, 22);
     h.writeUInt16LE(nameBuf.length, 26);
     h.writeUInt16LE(0, 28);
-
     parts.push(h, nameBuf, data);
 
     const cd = Buffer.alloc(46);
@@ -240,8 +244,8 @@ function createZipStream(sourceDir) {
     cd.writeUInt16LE(0, 36);
     cd.writeUInt32LE(0, 38);
     cd.writeUInt32LE(offset, 42);
-
     cdEntries.push(cd, nameBuf);
+
     offset += h.length + nameBuf.length + data.length;
   }
 
@@ -262,12 +266,9 @@ function createZipStream(sourceDir) {
   return Buffer.concat([...parts, ...cdEntries, eocd]);
 }
 
-// HTTP Server
 const server = http.createServer((req, res) => {
-  // ক্র্যাশ-প্রুফ URL পার্সিং
   const parsed = new URL(req.url || '/', 'http://127.0.0.1');
 
-  // Render Health Check পাথ
   if (parsed.pathname === '/healthz' || parsed.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     return res.end('OK');
@@ -386,7 +387,7 @@ wss.on('connection', async (ws) => {
         await session.page.setViewportSize(session.viewport);
         await session.cdp.send('Page.startScreencast', {
           format: 'jpeg',
-          quality: 40,
+          quality: 35,
           maxWidth: msg.width,
           maxHeight: msg.height,
           everyNthFrame: 1
@@ -419,5 +420,5 @@ wss.on('connection', async (ws) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Server successfully started on http://${HOST}:${PORT}`);
+  console.log(`Server started on http://${HOST}:${PORT}`);
 });

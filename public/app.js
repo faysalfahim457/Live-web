@@ -1,9 +1,7 @@
-// WebCollector Studio - Complete Touch, View Switching & Collector Engine
 (function () {
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
   let ws = null;
 
-  // DOM এলিমেন্টস
   const app = document.getElementById('app');
   const stage = document.getElementById('stage');
   const frameWrap = document.getElementById('frame');
@@ -22,7 +20,6 @@
   const chips = document.getElementById('chips');
   const dlSum = document.getElementById('dl-sum');
 
-  // বাটনসমূহ
   const btnKbd = document.getElementById('btn-kbd');
   const kbdInput = document.getElementById('kbd-input');
   const btnBack = document.getElementById('btn-back');
@@ -38,7 +35,7 @@
   const collectedFiles = [];
   const currentImage = new Image();
 
-  // --- ১. বটম নেভিগেশন ও ভিউ সুইচার (Browser / Files / Downloads) ---
+  // ১. ভিউ সুইচ (Browser / Files / Downloads)
   const bottomNavButtons = document.querySelectorAll('#bottomnav button');
   bottomNavButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -56,17 +53,16 @@
     if (view === 'downloads') updateDownloadStats();
   }
 
-  // --- ২. ওয়েবসকেট কানেকশন ও লাইভ স্ক্রিন রেন্ডার ---
+  // ২. লাইভ স্ক্রিনকাস্ট ও সকেট কানেকশন
   function connect() {
     ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => setStatus('ready', 'Ready for New Collection');
+    ws.onopen = () => setStatus('ready', 'Connected & Ready');
 
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
 
-        // লাইভ স্ক্রিন ফ্রেম
         if (msg.type === 'frame') {
           welcome.hidden = true;
           frameWrap.hidden = false;
@@ -81,7 +77,6 @@
               screen.height = h;
             }
 
-            // ফ্রেম রেসপনসিভ রাখা
             const maxW = stage.clientWidth - 12;
             const maxH = stage.clientHeight - 12;
             const scale = Math.min(maxW / w, maxH / h, 1);
@@ -93,7 +88,6 @@
           currentImage.src = 'data:image/jpeg;base64,' + msg.data;
         }
 
-        // স্ট্যাটাস ও নেভিগেশন আপডেট
         if (msg.type === 'status' || msg.type === 'navigated') {
           if (msg.url && msg.url !== 'about:blank') {
             urlInput.value = msg.url;
@@ -103,7 +97,6 @@
           if (msg.count !== undefined) updateBadge(msg.count);
         }
 
-        // নতুন ফাইল যুক্ত হওয়া
         if (msg.type === 'resource_collected') {
           collectedFiles.unshift(msg.resource);
           updateBadge(msg.count);
@@ -132,7 +125,7 @@
     if (bnCount) bnCount.textContent = c > 0 ? c : '';
   }
 
-  // --- ৩. ফাইল লিস্ট রেন্ডারিং ও ফিল্টারিং ---
+  // ৩. ফাইল তালিকা রেন্ডার
   function renderFiles() {
     if (!fileList) return;
     const q = (qInput.value || '').toLowerCase();
@@ -143,7 +136,7 @@
     });
 
     if (filtered.length === 0) {
-      fileList.innerHTML = '<div class="empty">No files collected matching criteria.</div>';
+      fileList.innerHTML = '<div class="empty">No files collected yet.</div>';
       return;
     }
 
@@ -171,7 +164,7 @@
   }
   if (qInput) qInput.addEventListener('input', renderFiles);
 
-  // --- ৪. মোবাইল টাচ, স্ক্রোল ও ক্লিক ইঞ্জিন ---
+  // ৪. টাচ ও ক্লিক হ্যান্ডলার
   function getCanvasCoords(clientX, clientY) {
     const rect = screen.getBoundingClientRect();
     const scaleX = screen.width / rect.width;
@@ -229,7 +222,6 @@
     isScrolling = false;
   });
 
-  // ডেস্কটপ মাউস
   screen.addEventListener('mousedown', (e) => {
     const c = getCanvasCoords(e.clientX, e.clientY);
     send({ type: 'mouse', event: 'mousedown', x: c.x, y: c.y });
@@ -238,13 +230,7 @@
     const c = getCanvasCoords(e.clientX, e.clientY);
     send({ type: 'mouse', event: 'mouseup', x: c.x, y: c.y });
   });
-  screen.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const c = getCanvasCoords(e.clientX, e.clientY);
-    send({ type: 'wheel', x: c.x, y: c.y, deltaX: e.deltaX, deltaY: e.deltaY });
-  }, { passive: false });
 
-  // কিবোর্ড টাইপিং
   if (btnKbd && kbdInput) {
     btnKbd.addEventListener('click', () => kbdInput.focus());
     kbdInput.addEventListener('input', () => {
@@ -255,12 +241,12 @@
     });
   }
 
-  // --- ৫. নেভিগেশন ও বাটন অ্যাকশন ---
+  // ৫. নেভিগেশন ও অ্যাকশন
   urlForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const u = urlInput.value.trim();
     if (u && u !== 'about:blank') {
-      setStatus('collecting', 'Loading...');
+      setStatus('collecting', 'Loading site...');
       switchView('browser');
       send({ type: 'navigate', url: u });
     }
@@ -271,17 +257,6 @@
   btnReload.addEventListener('click', () => send({ type: 'nav_action', action: 'reload' }));
   if (btnScan) btnScan.addEventListener('click', () => send({ type: 'scan' }));
 
-  // ভিউপোর্ট পরিবর্তন (মোবাইল / ট্যাব / ডেস্কটপ)
-  document.querySelectorAll('[data-vp]').forEach(b => {
-    b.addEventListener('click', () => {
-      const mode = b.getAttribute('data-vp');
-      const sizes = { mobile: [390, 844], tablet: [768, 1024], desktop: [1280, 800] };
-      const [width, height] = sizes[mode] || [390, 844];
-      send({ type: 'set_viewport', width, height });
-    });
-  });
-
-  // জিপ ডাউনলোড
   function triggerDownload() {
     window.location.href = '/api/download';
   }
@@ -292,7 +267,6 @@
     if (dlSum) dlSum.textContent = `${collectedFiles.length} files collected so far.`;
   }
 
-  // রিসেট ও নতুন কালেকশন
   function resetAll() {
     if (confirm('Start a new collection? All current files will be cleared.')) {
       send({ type: 'reset' });

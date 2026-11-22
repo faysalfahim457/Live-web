@@ -3,5 +3,8 @@ services:
     name: webcollector
     runtime: docker
     plan: free
-    healthCheckPath: /
+    healthCheckPath: /healthz
     autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000

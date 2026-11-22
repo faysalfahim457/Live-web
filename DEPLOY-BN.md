@@ -36,3 +36,8 @@ URL দিন → Start → ডিসপ্লেতে ব্রাউজার
 2. render.com-এ GitHub দিয়ে সাইন-আপ → **New → Web Service** → ঐ repository বাছুন → Language/Runtime: **Docker** → Instance type: **Free** → Deploy।
 3. Build শেষে Render একটি `https://….onrender.com` ঠিকানা দেবে — ওটা খুলুন।
 সীমা: ১৫ মিনিট কেউ না ঢুকলে সার্ভিস ঘুমিয়ে যায় (আবার খুললে ~১ মিনিট লাগে এবং চলমান সংগ্রহ হারায়); মাসে ৭৫০ ঘণ্টা; ফ্রি প্ল্যানের RAM কম হওয়ায় Chromium ক্র্যাশ করতে পারে — তখন Render-এর পেইড প্ল্যান (বেশি RAM) লাগবে।
+
+## আপডেট (নতুন)
+- **Download → "Host-ready Site (original paths)"**: ফাইলগুলো সাইটের আসল পথে সাজানো (যেমন `/m/app.js` → `m/app.js`), পেজ `m/home/index.html`-এ। এই ফোল্ডারের ভেতরের জিনিস হোস্টের **root**-এ (public_html/htdocs) আপলোড করলে সাইট চলবে। "Complete Project ZIP"-এও এটা `site/` ফোল্ডারে থাকে; ধরন অনুযায়ী (css/js/images/fonts) সাজানো কপি `original/assets/`-এ থাকে।
+- **Lazy chunk আবিষ্কার**: Webpack সাইটের (`/m/…chunk.js`) যে ফাইলগুলো ব্রাউজার এখনো চায়নি, রানটাইমের তালিকা পড়ে সেগুলোও নিজে সংগ্রহ করে।
+- ছোট সার্ভারের জন্য ব্রাউজার স্ট্রিম হালকা করা হয়েছে (Dockerfile-এ `SCREENCAST_QUALITY=45`, `SCREENCAST_EVERY_NTH=2`, `MAX_CONCURRENT_COLLECT=3`)।

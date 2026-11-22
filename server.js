@@ -1,12 +1,13 @@
-import http from 'node:http';
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
-import { chromium } from 'playwright';
-import { WebSocketServer, WebSocket } from 'ws';
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { chromium } = require('playwright');
+const { WebSocketServer, WebSocket } = require('ws');
 
+// Render স্বয়ংক্রিয়ভাবে PORT এনভায়রনমেন্ট ভেরিয়েবল সেট করে
 const PORT = process.env.PORT || 7860;
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = '0.0.0.0';
 const TEMP_ROOT = process.env.TEMP_ROOT || '/tmp/webcollector';
 const PUBLIC_DIR = path.join(process.cwd(), 'public');
 
@@ -155,7 +156,7 @@ async function initBrowser(session) {
   });
 
   session.cdp.on('Page.screencastFrame', async ({ data, sessionId }) => {
-    // ক্রোমিয়াম যাতে পরবর্তী ফ্রেম না আটকে রাখে সেজন্য সাথে সাথে ACK দিতে হবে
+    // ক্রোমিয়াম যাতে পরবর্তী ফ্রেম না আটকে রাখে সেজন্য সাথে সাথে ACK দেওয়া হচ্ছে
     try {
       await session.cdp.send('Page.screencastFrameAck', { sessionId });
     } catch {}
@@ -168,7 +169,7 @@ async function initBrowser(session) {
     }
   });
 
-  // পেজ লোড শেষ বা টাইটেল চেঞ্জ হলে ফ্রন্টএন্ড জানানো
+  // পেজ লোড বা ইউআরএল চেঞ্জ হলে ফ্রন্টএন্ড জানানো
   session.page.on('framenavigated', async () => {
     session.lastUrl = session.page.url();
     session.pages.add(session.lastUrl);
@@ -237,7 +238,7 @@ wss.on('connection', async (ws, req) => {
           // 'networkidle' পরিহার করা হয়েছে যাতে লাইভ সকেট পেজে আটকে না থাকে
           await session.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 35000 });
         } catch (e) {
-          // কোনো এরর হলেও ফ্রন্টএন্ডে ব্রাউজার সচল থাকবে
+          // এরর হলেও ফ্রন্টএন্ডে ব্রাউজার চালু থাকবে
         }
         ws.send(JSON.stringify({ type: 'status', state: 'collecting', url: session.page.url() }));
       }
@@ -295,7 +296,7 @@ wss.on('connection', async (ws, req) => {
         ws.send(JSON.stringify({ type: 'status', state: 'ready', count: 0, pages: 0, url: '' }));
       }
     } catch (err) {
-      console.error('Socket message error:', err.message);
+      console.error('Socket error:', err.message);
     }
   });
 

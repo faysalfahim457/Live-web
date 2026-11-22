@@ -6,7 +6,7 @@ COPY package.json ./
 RUN npm pkg set dependencies.playwright=1.48.0 && npm install --omit=dev
 COPY . .
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=7860 TEMP_ROOT=/tmp/webcollector HOME=/tmp \
-    CHROMIUM_NO_SANDBOX=true TRUST_PROXY=true COOKIE_SECURE=auto MAX_SESSIONS=2 \
+    CHROMIUM_NO_SANDBOX=true TRUST_PROXY=true COOKIE_SECURE=auto MAX_SESSIONS=2 SCREENCAST_QUALITY=45 SCREENCAST_EVERY_NTH=2 MAX_CONCURRENT_COLLECT=3 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # Hugging Face runs containers as UID 1000
 RUN mkdir -p /tmp/webcollector && chown -R 1000:1000 /app /tmp/webcollector

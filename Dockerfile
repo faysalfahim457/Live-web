@@ -16,7 +16,7 @@ ENV NODE_ENV=production \
     COOKIE_SECURE=auto \
     MAX_SESSIONS=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    NODE_OPTIONS="--max-old-space-size=256"
+    NODE_OPTIONS="--max-old-space-size=200"
 
 RUN mkdir -p /tmp/webcollector && chown -R 1000:1000 /app /tmp/webcollector
 USER 1000
